@@ -1,0 +1,49 @@
+[Unit]
+Description=pen-gate — AxiDraw HTTP gateway
+Documentation=https://github.com/evil-mad/axidraw
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=rpi3
+Group=rpi3
+SupplementaryGroups=dialout video
+
+WorkingDirectory=/home/rpi3/pen-gate
+ExecStart=/home/rpi3/pen-gate/venv/bin/python /home/rpi3/pen-gate/gateway.py
+
+Restart=on-failure
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pen-gate
+
+# --- hardening ---
+# NOTE: ProtectKernelTunables/Modules/Logs, ProtectControlGroups, and
+# PrivateTmp remount portions of /proc and /tmp read-only, which
+# collides with bwrap trying to mount fresh /proc inside its sandbox
+# ("VFS: Mount too revealing" from the kernel). Since bwrap itself
+# provides much stronger isolation for the sandboxed child, we can
+# afford to keep the systemd-side hardening moderate.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/rpi3/pen-gate
+ProtectClock=yes
+LockPersonality=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+# We DO need CAP_SYS_ADMIN's userns bits (for bwrap) — do not restrict namespaces.
+# We DO need to bind /dev/ttyACM* — dialout supplementary group handles that.
+
+# AF_INET(6) for HTTP, AF_UNIX for internals, AF_NETLINK so bwrap can
+# bring up loopback in its unshared net namespace. No raw sockets, etc.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+
+# Cap on runaway memory
+MemoryMax=512M
+TasksMax=200
+
+[Install]
+WantedBy=multi-user.target
