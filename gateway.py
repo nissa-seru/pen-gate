@@ -239,7 +239,18 @@ app = Flask(__name__)
 @app.route("/status")
 @require_token
 def route_status():
-    st = check_status()
+    # If a plot is active it owns the serial port. Probing the EBB now
+    # would open a SECOND handle to /dev/ttyACM0 (check_status sends "V"),
+    # interleaving bytes into the plot's command stream and corrupting it
+    # — pyaxidraw then reports "USB connection to AxiDraw lost" and the
+    # job dies mid-plot. Same USB-contention hazard the camera guards
+    # against. Report status from job state without touching the port.
+    with job_state_lock:
+        job_active = job_state["active"]
+    if job_active:
+        st = {"connected": True, "port": find_port(), "fw": "plotting…"}
+    else:
+        st = check_status()
     st["job"] = job_snapshot()
     return jsonify(st)
 
