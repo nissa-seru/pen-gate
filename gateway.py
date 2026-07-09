@@ -354,6 +354,15 @@ def route_snapshot():
     p = _provided_token()
     if not p or not secrets.compare_digest(p, TOKEN):
         return Response("", status=401)
+    # Serial and camera share a USB bus on the RPi. Doing both at once
+    # destabilizes the bus and drops the EBB mid-plot ("USB connection
+    # to AxiDraw lost"). Refuse camera captures while a plot is active.
+    with job_state_lock:
+        job_active = job_state["active"]
+    if job_active:
+        return Response("plot in progress — camera paused", status=503,
+                        mimetype="text/plain",
+                        headers={"Retry-After": "5"})
     size = request.args.get("size", CAMERA_SIZE)
     jpg, err = capture_snapshot(size)
     if jpg is None:
@@ -608,6 +617,9 @@ async function checkStatus() {
       $("status").className = "err";
     }
     $("btn-cancel").disabled = !j.job || !j.job.active;
+    const wasActive = jobActive;
+    jobActive = !!(j.job && j.job.active);
+    if (wasActive !== jobActive) rescheduleCam();
   } catch (e) {
     $("status").textContent = "server error";
     $("status").className = "err";
@@ -689,9 +701,11 @@ function refreshCam() {
   probe.onerror = () => { meta.textContent = "err"; };
   probe.src = url;
 }
+let jobActive = false;
 function rescheduleCam() {
   if (camTimer) { clearInterval(camTimer); camTimer = null; }
   if (!$("cam-auto").checked) return;
+  if (jobActive) return;   // paused during plots — USB bus is shared with EBB
   const ms = parseInt($("cam-interval").value, 10);
   if (ms > 0) camTimer = setInterval(refreshCam, ms);
 }
